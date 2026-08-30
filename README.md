@@ -3,6 +3,53 @@ Apache httpd configured as a reverse proxy.  It protects the upstream service us
 
 This is packaged as a Docker container and it is available here https://hub.docker.com/r/richardjkendall/oidc-rproxy
 
+## Images and tags
+
+```
+richardjkendall/oidc-rproxy:2026-08-30    <- current
+richardjkendall/oidc-rproxy:latest        <- moves; points at the same build today
+```
+
+**Pin a dated tag.** `latest` moves, and something pulling it will change
+underneath itself with no rollout and no record of which build it got. That is
+not hypothetical here: `latest` served a **2021-01-30** build for five years
+while this README described 2026 behaviour, because every consumer pulled it
+untagged and nothing ever republished it. It was moved forward on 2026-08-30,
+once nothing was pinned to it.
+
+Build with `./build.sh` — plan by default, `--execute`, `--test`, `--push`.
+`--test` runs the image against a real discovery document and asserts the state
+cookie is `SameSite=None`, which is the regression guard described below.
+
+## Upgrading to the 2026-08-30 build — one more behaviour change
+
+`OIDCCookieSameSite Off` is now set, which makes the module emit
+`SameSite=None` on its cookies rather than the `SameSite=Lax` that
+mod_auth_openidc 2.4.15 defaults to.
+
+**Without it, any IdP on a different registrable domain from the app breaks** —
+and breaks in the least obvious way. `OIDCResponseMode form_post` means the IdP
+returns by POSTing to `/redirect_uri`; browsers give a cookie with *no* SameSite
+attribute a short "Lax+POST" grace, but give an explicit `Lax` none. So the
+redirect *out* is correct, nothing logs an error at startup, and every login
+fails at the callback with:
+
+```
+oidc_restore_proto_state: no "mod_auth_openidc_state_..." state cookie found:
+check domain and samesite cookie settings
+```
+
+A gate fronted by `auth.example.com` protecting `app.example.com` never sees
+this. One fronted by Google does.
+
+Note the directive value: it accepts only `On` or `Off` — `None`, `Lax` and
+`Strict` are rejected at startup and Apache refuses to start — and `Off` is what
+produces `SameSite=None`.
+
+**The cost:** the session cookie becomes `SameSite=None` too, so CSRF protection
+for the proxied app is weaker than `Lax`. No weaker than the 2.3.3 behaviour it
+replaces, but do not rely on this proxy for CSRF defence.
+
 ## Configuration
 The container uses a number of environment variables to pass in configuration.  They are defined below:
 

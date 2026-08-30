@@ -56,7 +56,20 @@
 #   ./build.sh --execute --test --push      # build, test, publish
 #   ./build.sh --tag 2026-08-30b ...        # same-day rebuild
 #
-# NEVER republish a tag something is pinned to. Use a new dated tag.
+# MOVING `latest` -- read before using --also-latest
+#
+# --also-latest additionally pushes the same build as :latest. This is normally
+# the exact fault dated tags exist to prevent: anything pulling :latest moves
+# underneath itself with no rollout and no record of which build it got.
+#
+# It is defensible only when NOTHING is pinned to :latest. That was true on
+# 2026-08-30 and is why it was used then: every pc2 gate had just been repinned
+# to dated int-reg tags, so :latest on Docker Hub had no consumers, while still
+# serving a 2021-01-30 build on EOL Ubuntu 18.04 that this repo's README
+# described as if it were the current one.
+#
+# Check before reaching for it. If anything is pinned to :latest, push the dated
+# tag alone and let consumers move deliberately.
 #
 set -euo pipefail
 
@@ -74,7 +87,7 @@ TEST_METADATA="https://accounts.google.com/.well-known/openid-configuration"
 TEST_JWKS="https://www.googleapis.com/oauth2/v3/certs"
 TEST_DOMAIN="gate.example.com"
 
-EXECUTE=0; PUSH=0; TEST=0
+EXECUTE=0; PUSH=0; TEST=0; ALSO_LATEST=0
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 say() { printf '%s\n' "$*"; }
@@ -84,6 +97,7 @@ while [ $# -gt 0 ]; do
     --execute)  EXECUTE=1 ;;
     --test)     TEST=1 ;;
     --push)     PUSH=1 ;;
+    --also-latest) ALSO_LATEST=1 ;;
     --tag)      shift; [ $# -gt 0 ] || die "--tag needs a value"; TAG="$1" ;;
     --registry) shift; [ $# -gt 0 ] || die "--registry needs a value"; REGISTRY="$1" ;;
     --platform) shift; [ $# -gt 0 ] || die "--platform needs a value"; PLATFORM="$1" ;;
@@ -212,4 +226,11 @@ say ""
 say "pushing $IMG..."
 docker buildx build --platform "$PLATFORM" -t "$IMG" --push .
 say ""
+if [[ "$ALSO_LATEST" == 1 ]]; then
+  say ""
+  say "also pushing $REGISTRY/$NAME:latest (see the header on when this is defensible)..."
+  docker buildx build --platform "$PLATFORM" -t "$REGISTRY/$NAME:latest" --push .
+  say "  moved :latest to this build"
+fi
+
 say "Done. $IMG is published."
